@@ -177,8 +177,12 @@
         statusNode.textContent = text;
       }
 
+      function isSocketConnected() {
+        return socket?.readyState === WebSocket.OPEN;
+      }
+
       function updateConnectButton() {
-        const connected = socket?.readyState === WebSocket.OPEN;
+        const connected = isSocketConnected();
         connectButton.textContent = connected
           ? "Computer Connected"
           : isConnecting
@@ -197,15 +201,18 @@
       }
 
       function updateControlUi() {
+        const connected = isSocketConnected();
         const hasControl = Boolean(controllerState?.is_current_viewer);
         const controllerLabel = controllerState?.label || "No active controller";
         controlBadgeNode.textContent = hasControl ? "You control this session" : "View only";
         controllerStatusNode.textContent = controllerState?.active
           ? `${controllerLabel} is controlling this session. Lease: ${controllerState.lease_seconds}s`
           : "No active controller.";
-        focusCodexButton.disabled = !hasControl;
-        sendButton.disabled = !hasControl;
-        stopComposerButton.disabled = !hasControl;
+        focusCodexButton.disabled = !connected || !hasControl;
+        sendButton.disabled = !connected || !hasControl;
+        stopComposerButton.disabled = !connected || !hasControl;
+        promptField.disabled = !connected;
+        composerCard.classList.toggle("is-disabled", !connected);
       }
 
       async function acquireControlIfAvailable() {
