@@ -223,6 +223,10 @@ video {
   gap: 12px;
 }
 
+.status-grid.hidden {
+  display: none;
+}
+
 .status-card {
   padding: 14px 16px;
   border-radius: 16px;
