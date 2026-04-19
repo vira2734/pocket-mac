@@ -73,7 +73,7 @@ The prototype is split into three pieces:
 ### 1. Install and run the server
 
 ```bash
-cd /Users/vinay/Documents/Codex/2026-04-18-help-me-create-a-plugin-that/shared-backend
+cd shared-backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -97,7 +97,7 @@ Recommended secure deployment shape:
 ### 2. Start the Mac agent
 
 ```bash
-cd /Users/vinay/Documents/Codex/2026-04-18-help-me-create-a-plugin-that/shared-backend
+cd shared-backend
 source .venv/bin/activate
 python3 mac_agent.py --session demo123 --token YOUR_SESSION_TOKEN
 ```
@@ -148,7 +148,7 @@ If you are testing outside your local network, put the server behind a secure tu
 Run the smoke test:
 
 ```bash
-cd /Users/vinay/Documents/Codex/2026-04-18-help-me-create-a-plugin-that/shared-backend
+cd shared-backend
 source .venv/bin/activate
 python3 scripts/smoke_test.py
 ```
