@@ -293,7 +293,24 @@ video {
 }
 
 .composer-toolbar {
-  justify-content: flex-start;
+  justify-content: center;
+}
+
+.composer-logo {
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(95, 208, 255, 0.14);
+  color: #9fe2ff;
+}
+
+.composer-logo svg {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
 }
 
 .composer-actions {
