@@ -31,8 +31,6 @@ DB_PATH = BASE_DIR / "control.db"
 WEB_DIR = BASE_DIR / "web"
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 DEFAULT_ICE_SERVERS = [{"urls": "stun:stun.l.google.com:19302"}]
-REMOTE_TRIAL_DEFAULT_MINUTES = int(os.getenv("REMOTE_TRIAL_DEFAULT_MINUTES", "10"))
-REMOTE_TRIAL_MAX_MINUTES = int(os.getenv("REMOTE_TRIAL_MAX_MINUTES", "30"))
 
 try:
     ICE_SERVERS = json.loads(os.getenv("ICE_SERVERS_JSON", json.dumps(DEFAULT_ICE_SERVERS)))
@@ -61,10 +59,6 @@ class CommandClaim(BaseModel):
 class CommandComplete(BaseModel):
     ok: bool
     detail: str = Field(..., min_length=1, max_length=12000)
-
-
-class RemoteTrialStart(BaseModel):
-    duration_minutes: int = Field(default=REMOTE_TRIAL_DEFAULT_MINUTES, ge=1, le=REMOTE_TRIAL_MAX_MINUTES)
 
 
 app = FastAPI(title="PocketCodex", version="0.2.0")
@@ -97,11 +91,8 @@ class RemoteTrialManager:
         self._public_url: str | None = None
         self._provider: str | None = None
         self._started_at: float | None = None
-        self._expires_at: float | None = None
-        self._duration_minutes: int | None = None
         self._last_error: str | None = None
         self._log_lines: list[str] = []
-        self._stop_timer: threading.Timer | None = None
 
     def _append_log(self, line: str) -> None:
         clean = line.strip()
@@ -119,8 +110,6 @@ class RemoteTrialManager:
             "provider": self._provider,
             "public_url": self._public_url,
             "started_at": utc_timestamp(self._started_at),
-            "expires_at": utc_timestamp(self._expires_at),
-            "duration_minutes": self._duration_minutes,
             "last_error": self._last_error,
         }
         if include_logs:
@@ -147,16 +136,11 @@ class RemoteTrialManager:
         self._clear_process_locked(keep_url=False)
 
     def _clear_process_locked(self, keep_url: bool) -> None:
-        if self._stop_timer is not None:
-            self._stop_timer.cancel()
-            self._stop_timer = None
         self._process = None
         if not keep_url:
             self._public_url = None
             self._provider = None
             self._started_at = None
-            self._expires_at = None
-            self._duration_minutes = None
         self._condition.notify_all()
 
     def _terminate_locked(self) -> None:
@@ -220,7 +204,7 @@ class RemoteTrialManager:
                 self._last_error = f"Remote trial tunnel exited with status {return_code}."
             self._clear_process_locked(keep_url=False)
 
-    def start(self, target_url: str, duration_minutes: int) -> dict[str, Any]:
+    def start(self, target_url: str) -> dict[str, Any]:
         with self._lock:
             self._reap_locked()
             if self._process is not None and self._process.poll() is None:
@@ -240,12 +224,7 @@ class RemoteTrialManager:
             self._process = process
             self._provider = provider
             self._started_at = time.time()
-            self._duration_minutes = duration_minutes
-            self._expires_at = self._started_at + (duration_minutes * 60)
             self._public_url = None
-            self._stop_timer = threading.Timer(duration_minutes * 60, self.stop)
-            self._stop_timer.daemon = True
-            self._stop_timer.start()
             threading.Thread(target=self._watch_process, args=(process,), daemon=True).start()
 
             deadline = time.time() + 25
@@ -571,10 +550,10 @@ def remote_trial_status() -> dict[str, Any]:
 
 
 @app.post("/api/remote-trial/start")
-def start_remote_trial(payload: RemoteTrialStart, request: Request) -> dict[str, Any]:
+def start_remote_trial(request: Request) -> dict[str, Any]:
     target_url = resolve_local_host_base_url(request)
     try:
-        remote_trial = remote_trial_manager.start(target_url, payload.duration_minutes)
+        remote_trial = remote_trial_manager.start(target_url)
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return remote_trial

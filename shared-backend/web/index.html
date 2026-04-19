@@ -21,7 +21,7 @@
         <input id="session" class="mono" placeholder="Leave blank to generate one" />
         <div class="row">
           <button id="create">Create Session</button>
-          <button id="startTrial" class="secondary">Start 10-Min Remote Trial</button>
+          <button id="startTrial" class="secondary">Start Remote Trial</button>
           <button id="stopTrial" class="secondary" disabled>Stop Remote Trial</button>
         </div>
         <div id="links" class="log status">Create a session to generate host and viewer links.</div>
@@ -75,9 +75,8 @@
         }
 
         if (trial.active) {
-          const expiresText = trial.expires_at ? ` Expires at ${trial.expires_at}.` : "";
           trialStatusNode.textContent =
-            `Remote trial active via ${trial.provider}: ${trial.public_url}.${expiresText}`;
+            `Remote trial active via ${trial.provider}: ${trial.public_url}`;
           startTrialButton.disabled = true;
           stopTrialButton.disabled = false;
           return;
@@ -160,7 +159,7 @@
         const response = await fetch("/api/remote-trial/start", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ duration_minutes: 10 }),
+          body: JSON.stringify({}),
         });
         if (!response.ok) {
           const error = await response.json().catch(() => ({ detail: "Remote trial failed to start." }));

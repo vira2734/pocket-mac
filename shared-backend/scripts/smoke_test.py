@@ -161,7 +161,7 @@ def main() -> None:
         remote_trial = fetch_json(
             "http://127.0.0.1:8011/api/remote-trial/start",
             method="POST",
-            payload={"duration_minutes": 10},
+            payload={},
         )
         assert remote_trial["active"] is True
         assert remote_trial["public_url"] == "https://pocketcodex-demo.trycloudflare.com"
@@ -197,7 +197,7 @@ def main() -> None:
         viewer_html = fetch_text("http://127.0.0.1:8011/viewer.html")
         assert "Host URL (open on Mac)" in index_html
         assert "Adaptive Viewer QR" in index_html
-        assert "10-Min Remote Trial" in index_html
+        assert "Start Remote Trial" in index_html
         assert "localhost or HTTPS" in host_html
         assert "Share Window" in host_html
         assert "Share Entire Screen" in host_html
