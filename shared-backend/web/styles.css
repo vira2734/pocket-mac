@@ -169,6 +169,10 @@ video {
   max-width: 1080px;
 }
 
+.host-card {
+  max-width: 1180px;
+}
+
 .composer-card.is-disabled {
   opacity: 0.68;
 }
@@ -182,6 +186,32 @@ video {
   display: grid;
   gap: 14px;
   margin-bottom: 18px;
+}
+
+.host-layout {
+  display: grid;
+  gap: 20px;
+}
+
+.host-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.host-copy {
+  display: grid;
+  gap: 10px;
+}
+
+.host-title {
+  margin: 0;
+  font-size: clamp(1.7rem, 3.8vw, 2.4rem);
+  line-height: 1.05;
+}
+
+.host-subtitle {
+  margin: 0;
+  max-width: 56ch;
 }
 
 .hero-button {
@@ -224,6 +254,48 @@ video {
 
 .viewer-stage {
   margin-top: 0;
+}
+
+.host-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.host-action-button {
+  flex: 1 1 220px;
+  min-height: 56px;
+}
+
+.host-warning {
+  border-color: rgba(255, 191, 94, 0.22);
+  background: rgba(94, 62, 17, 0.35);
+}
+
+.host-link {
+  word-break: break-all;
+}
+
+.host-qr-wrap {
+  display: flex;
+  justify-content: center;
+}
+
+.host-qr {
+  width: min(240px, 100%);
+  border-radius: 22px;
+  background: #ffffff;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.host-preview-frame {
+  min-height: 460px;
+}
+
+.host-preview-frame video {
+  min-height: 460px;
+  object-fit: contain;
 }
 
 .viewer-stage .video-frame {
@@ -438,5 +510,12 @@ video {
 
   .hero-button {
     min-height: 62px;
+  }
+}
+
+@media (min-width: 960px) {
+  .host-layout {
+    grid-template-columns: minmax(0, 1.05fr) minmax(360px, 1fr);
+    align-items: start;
   }
 }

@@ -7,33 +7,61 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main class="shell">
-      <section class="card grid two">
-        <div>
-          <div class="row">
-            <span class="pill">Mac host</span>
+    <main class="shell viewer-shell">
+      <section class="card host-card">
+        <div class="host-layout">
+          <div class="host-panel">
+            <div class="viewer-hero">
+              <button id="connect" class="hero-button">
+                <span class="hero-button-content">
+                  <span class="hero-button-icon" aria-hidden="true">
+                    <svg viewBox="0 0 20 20" focusable="false">
+                      <path
+                        d="M4.5 3.5h11a1.5 1.5 0 0 1 1.5 1.5v7a1.5 1.5 0 0 1-1.5 1.5h-4.1v1.6h2a.75.75 0 1 1 0 1.5H6.6a.75.75 0 0 1 0-1.5h2v-1.6H4.5A1.5 1.5 0 0 1 3 12V5a1.5 1.5 0 0 1 1.5-1.5Zm0 1.5v7h11V5h-11Z"
+                      />
+                    </svg>
+                  </span>
+                  <span id="connectLabel">Connect Host</span>
+                </span>
+              </button>
+            </div>
+
+            <div class="host-copy">
+              <span class="pill">Host Computer</span>
+              <h1 class="host-title">Share Codex or your full screen to your phone.</h1>
+              <p class="status host-subtitle">
+                Use this page on the computer. Safari will ask whether you want to share the Codex
+                app window or the full screen.
+              </p>
+            </div>
+
+            <div class="stack">
+              <label class="small" for="session">Session</label>
+              <input id="session" class="mono" />
+            </div>
+
+            <div class="host-actions">
+              <button id="shareWindow" class="secondary host-action-button" disabled>Share Window</button>
+              <button id="shareScreen" class="secondary host-action-button" disabled>Share Entire Screen</button>
+            </div>
+
+            <div id="warning" class="status-card host-warning hidden"></div>
+            <div class="status-card">
+              <strong>Host Status</strong>
+              <div id="status" class="status">Idle</div>
+            </div>
+            <div class="status-card">
+              <strong>Phone Link</strong>
+              <div id="link" class="status mono host-link">Waiting for connection.</div>
+            </div>
+            <div class="host-qr-wrap">
+              <img id="viewerQr" alt="Viewer QR code" class="host-qr hidden" />
+            </div>
           </div>
-          <h1>Share the Codex app or your full screen to your phone.</h1>
-          <p class="status">
-            Use this page on the Mac. The stream uses WebRTC. Choose whether to share the Codex app
-            window or your entire screen when Safari asks.
-          </p>
-          <div class="row">
-            <label class="small" for="session">Session</label>
+
+          <div class="video-frame host-preview-frame">
+            <video id="preview" autoplay muted playsinline></video>
           </div>
-          <input id="session" class="mono" />
-          <div class="row">
-            <button id="connect">Connect</button>
-            <button id="shareWindow" class="secondary" disabled>Share Window</button>
-            <button id="shareScreen" class="secondary" disabled>Share Entire Screen</button>
-          </div>
-          <p id="warning" class="status" style="display:none;color:#ffcc80"></p>
-          <p id="status" class="status">Idle</p>
-          <p id="link" class="status mono"></p>
-          <img id="viewerQr" alt="Viewer QR code" style="display:none;max-width:220px;width:100%;border-radius:16px;background:#fff;padding:10px" />
-        </div>
-        <div class="video-frame">
-          <video id="preview" autoplay muted playsinline></video>
         </div>
       </section>
     </main>
@@ -48,6 +76,7 @@
       const statusNode = document.getElementById("status");
       const linkNode = document.getElementById("link");
       const viewerQr = document.getElementById("viewerQr");
+      const connectLabelNode = document.getElementById("connectLabel");
 
       const params = new URLSearchParams(window.location.search);
       sessionInput.value = params.get("session") || "demo123";
@@ -58,9 +87,21 @@
       let localStream;
       let heartbeatTimer;
       let runtimeConfig;
+      let isConnecting = false;
 
       function setStatus(text) {
         statusNode.textContent = text;
+      }
+
+      function updateConnectButton() {
+        const connected = socket?.readyState === WebSocket.OPEN;
+        connectLabelNode.textContent = connected
+          ? "Host Connected"
+          : isConnecting
+            ? "Connecting Host..."
+            : "Connect Host";
+        connectButton.classList.toggle("is-connected", connected);
+        connectButton.disabled = isConnecting || connected;
       }
 
       function isSecureCaptureOrigin() {
@@ -71,14 +112,14 @@
 
       function renderOriginWarning(config) {
         if (isSecureCaptureOrigin()) {
-          warningNode.style.display = "none";
+          warningNode.classList.add("hidden");
           warningNode.textContent = "";
           return;
         }
 
         const localUrl = new URL("/host.html", config.local_host_base_url);
         localUrl.search = window.location.search;
-        warningNode.style.display = "block";
+        warningNode.classList.remove("hidden");
         warningNode.textContent =
           `Safari screen sharing needs this host page on localhost or HTTPS. Open this on the Mac instead: ${localUrl.toString()}`;
       }
@@ -159,11 +200,19 @@
       }
 
       async function connectSocket() {
+        if (socket?.readyState === WebSocket.OPEN || isConnecting) {
+          return;
+        }
+
+        isConnecting = true;
+        updateConnectButton();
         const config = await ensureRuntimeConfig();
         await ensureSession();
         socket = new WebSocket(`${wsBase(window.location.origin)}/ws/session/${sessionInput.value}/host?token=${encodeURIComponent(sessionToken)}`);
 
         socket.onopen = () => {
+          isConnecting = false;
+          updateConnectButton();
           setStatus("Host connected. Choose window share or full-screen share.");
           shareWindowButton.disabled = false;
           shareScreenButton.disabled = false;
@@ -172,7 +221,7 @@
           url.searchParams.set("token", sessionToken);
           linkNode.textContent = url.toString();
           viewerQr.src = `/api/sessions/${sessionInput.value}/qr.svg?kind=viewer&token=${encodeURIComponent(sessionToken)}`;
-          viewerQr.style.display = "block";
+          viewerQr.classList.remove("hidden");
           clearInterval(heartbeatTimer);
           heartbeatTimer = setInterval(() => {
             fetch(`/api/sessions/${sessionInput.value}/heartbeat`, {
@@ -214,7 +263,14 @@
           }
         };
 
+        socket.onerror = () => {
+          isConnecting = false;
+          updateConnectButton();
+        };
+
         socket.onclose = () => {
+          isConnecting = false;
+          updateConnectButton();
           setStatus("Socket disconnected.");
           shareWindowButton.disabled = true;
           shareScreenButton.disabled = true;
@@ -225,6 +281,7 @@
       connectButton.addEventListener("click", connectSocket);
       shareWindowButton.addEventListener("click", () => startSharing("window"));
       shareScreenButton.addEventListener("click", () => startSharing("screen"));
+      updateConnectButton();
     </script>
   </body>
 </html>
