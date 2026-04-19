@@ -194,6 +194,27 @@ video {
   justify-content: center;
 }
 
+.hero-button-content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.hero-button-icon {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hero-button-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
 .hero-button.is-connected {
   background: var(--muted-button);
   color: var(--text-soft);
