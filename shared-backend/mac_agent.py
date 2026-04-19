@@ -4,9 +4,14 @@ import argparse
 import json
 import socket
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
+
+
+QUARTZ_PYTHON: str | None = None
 
 
 def request_json(method: str, url: str, payload: dict | None = None, token: str | None = None) -> dict | None:
@@ -35,15 +40,127 @@ def request_json(method: str, url: str, payload: dict | None = None, token: str 
     return json.loads(raw)
 
 
+def get_quartz_python() -> str:
+    global QUARTZ_PYTHON
+    if QUARTZ_PYTHON:
+        return QUARTZ_PYTHON
+
+    candidates = [
+        sys.executable,
+        "/opt/anaconda3/bin/python3",
+        "/opt/homebrew/bin/python3",
+        "/usr/local/bin/python3",
+        "/usr/bin/python3",
+    ]
+
+    probe = "import Quartz"
+    for candidate in candidates:
+        if not candidate or not Path(candidate).exists():
+            continue
+        result = subprocess.run(
+            [candidate, "-c", probe],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            QUARTZ_PYTHON = candidate
+            return candidate
+
+    raise RuntimeError("No Python interpreter with Quartz support is available.")
+
+
+def get_app_window_bounds(app_name: str) -> tuple[float, float, float, float]:
+    helper = r"""
+import json
+import sys
+import Quartz
+
+app_name = sys.argv[1]
+windows = Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly, Quartz.kCGNullWindowID)
+candidates = []
+
+for window in windows:
+    if window.get("kCGWindowOwnerName") != app_name:
+        continue
+    if window.get("kCGWindowLayer", 1) != 0:
+        continue
+    bounds = window.get("kCGWindowBounds", {})
+    width = int(bounds.get("Width", 0))
+    height = int(bounds.get("Height", 0))
+    if width <= 0 or height <= 0:
+        continue
+    candidates.append((width * height, bounds))
+
+if not candidates:
+    raise SystemExit(2)
+
+_, bounds = max(candidates, key=lambda item: item[0])
+plain_bounds = {key: float(value) for key, value in dict(bounds).items()}
+print(json.dumps(plain_bounds))
+"""
+    result = subprocess.run(
+        [get_quartz_python(), "-c", helper, app_name],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(f"Could not find an on-screen window for {app_name}.")
+
+    bounds = json.loads(result.stdout)
+    return (float(bounds["X"]), float(bounds["Y"]), float(bounds["Width"]), float(bounds["Height"]))
+
+
+def click_point(x: float, y: float) -> None:
+    helper = r"""
+import sys
+import time
+import Quartz
+
+x = float(sys.argv[1])
+y = float(sys.argv[2])
+source = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStateCombinedSessionState)
+move = Quartz.CGEventCreateMouseEvent(source, Quartz.kCGEventMouseMoved, (x, y), Quartz.kCGMouseButtonLeft)
+down = Quartz.CGEventCreateMouseEvent(source, Quartz.kCGEventLeftMouseDown, (x, y), Quartz.kCGMouseButtonLeft)
+up = Quartz.CGEventCreateMouseEvent(source, Quartz.kCGEventLeftMouseUp, (x, y), Quartz.kCGMouseButtonLeft)
+Quartz.CGEventPost(Quartz.kCGHIDEventTap, move)
+time.sleep(0.04)
+Quartz.CGEventPost(Quartz.kCGHIDEventTap, down)
+time.sleep(0.02)
+Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
+"""
+    result = subprocess.run(
+        [get_quartz_python(), "-c", helper, str(x), str(y)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError("Unable to click Codex composer region.")
+
+
+def focus_codex_composer(app_name: str) -> None:
+    left, top, width, height = get_app_window_bounds(app_name)
+    # Codex exposes a custom UI tree, so target the lower-center input region directly.
+    target_x = left + (width * 0.5)
+    target_y = top + (height * 0.9)
+    click_point(target_x, target_y)
+    time.sleep(0.2)
+
+
 def paste_into_codex(text: str, submit: bool, app_name: str) -> str:
     subprocess.run(["pbcopy"], input=text, text=True, check=True)
+    activate_codex(app_name)
+    time.sleep(0.2)
+    focus_codex_composer(app_name)
 
     paste_script = f'''
-        tell application "{app_name}" to activate
-        delay 0.35
         tell application "System Events"
             keystroke "a" using command down
-            delay 0.08
+            delay 0.1
             keystroke "v" using command down
     '''
     if submit:
