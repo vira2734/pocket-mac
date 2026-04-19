@@ -184,8 +184,10 @@ video {
 }
 
 .hero-button.is-connected {
-  background: linear-gradient(135deg, #19b387, #73e0bb);
-  color: #062318;
+  background: var(--muted-button);
+  color: var(--text-soft);
+  border-color: var(--border);
+  box-shadow: none;
 }
 
 .viewer-stage {
@@ -226,6 +228,7 @@ video {
 .chat-history-toggle {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
   padding: 12px 14px;
   cursor: pointer;
