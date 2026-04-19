@@ -1,6 +1,7 @@
 .DS_Store
 .env
 .venv/
+.build-venv/
 __pycache__/
 *.pyc
 *.pyo
@@ -9,4 +10,6 @@ __pycache__/
 *.log
 dist/
 build/
+PocketCodex.spec
+tmp/
 .pytest_cache/

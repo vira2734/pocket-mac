@@ -26,10 +26,11 @@ Implemented and smoke-tested locally:
 - Mac agent that polls for commands and can inject prompts, focus Codex, and send Escape via AppleScript
 - temporary public-tunnel remote trial flow with automatic fallback
 - API smoke test for session, command queue, and WebSocket relay flows
+- macOS desktop launcher that bundles the local web app into a self-contained `.app`
 
 Not done yet:
 
-- native macOS app packaging
+- signed/notarized macOS distribution
 - TURN/STUN hardening for internet-grade connectivity beyond trial tunnels
 - full remote mouse and keyboard control
 - persistent auth and multi-device account management
@@ -49,7 +50,7 @@ The prototype is split into three pieces:
    - can start a remote trial tunnel and swap viewer links to that public URL
 
 2. Mac host
-   - opens the launch page on `localhost` in a browser
+   - can run either from source or from the packaged Mac app
    - captures the full screen with `getDisplayMedia`
    - displays one QR code and one token-protected phone viewer link
    - shows host and phone connection state in a simplified centered UI
@@ -65,16 +66,54 @@ The prototype is split into three pieces:
    - replaces the existing draft in the focused Codex prompt field before pasting
    - optionally presses Return to submit
    - can be auto-started by the host page for the active session
+   - can be relaunched by the packaged app without requiring Python on the user's machine
 
 ## Repo Layout
 
 - `shared-backend/app/main.py`: FastAPI app, session store, command queue, signaling server
 - `shared-backend/mac_agent.py`: Mac-side Codex prompt injector
+- `shared-backend/pocketcodex_desktop.py`: packaged desktop launcher entrypoint
 - `shared-backend/web/host.html`: standalone host page used on the Mac for direct/debug entry
 - `shared-backend/web/viewer.html`: mobile viewer/control page
 - `shared-backend/web/index.html`: one-click Mac host flow
 - `shared-backend/scripts/smoke_test.py`: local API smoke test
 - `shared-backend/scripts/fake_tunnel.py`: deterministic test helper for the remote trial flow
+- `packaging/build_macos_app.sh`: builds `dist/PocketCodex.app` with PyInstaller
+
+## macOS App Packaging
+
+PocketCodex can now be built as a self-contained macOS app bundle so end users do not need their
+own Python installation.
+
+What the packaged app does:
+
+- bundles the Python runtime and PocketCodex backend
+- stores writable app data under `~/Library/Application Support/PocketCodex`
+- launches the local server itself
+- opens the local host UI in the browser
+- can relaunch the local Mac agent from the same bundled runtime
+
+Build the `.app` locally:
+
+```bash
+./packaging/build_macos_app.sh
+```
+
+That produces:
+
+```bash
+dist/PocketCodex.app
+```
+
+The build script was verified locally by:
+
+- building `dist/PocketCodex.app`
+- launching the bundled executable directly
+- hitting `/api/health` successfully from the built app runtime
+
+Current limitation:
+
+- the app bundle is built and runnable locally, but it is not yet code signed or notarized for public distribution
 
 ## Quick Start
 

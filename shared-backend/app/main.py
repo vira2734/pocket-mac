@@ -28,9 +28,16 @@ from pydantic import BaseModel, Field, model_validator
 from qrcode.image.svg import SvgImage
 
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-DB_PATH = BASE_DIR / "control.db"
-WEB_DIR = BASE_DIR / "web"
+def resolve_base_dir() -> Path:
+    override = os.getenv("POCKETCODEX_BASE_DIR", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+    return Path(__file__).resolve().parent.parent
+
+
+BASE_DIR = resolve_base_dir()
+DB_PATH = Path(os.getenv("POCKETCODEX_DB_PATH", str(BASE_DIR / "control.db"))).expanduser()
+WEB_DIR = Path(os.getenv("POCKETCODEX_WEB_DIR", str(BASE_DIR / "web"))).expanduser()
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 DEFAULT_ICE_SERVERS = [{"urls": "stun:stun.l.google.com:19302"}]
 CONTROL_LEASE_SECONDS = int(os.getenv("CONTROL_LEASE_SECONDS", "45"))
@@ -290,23 +297,46 @@ class LocalAgentManager:
             if existing is not None and existing.poll() is None:
                 return {"running": True, "started": False, "pid": existing.pid}
 
-            command = [
-                sys.executable,
-                str(BASE_DIR / "mac_agent.py"),
-                "--session",
-                session_id,
-                "--token",
-                token,
-                "--base-url",
-                base_url,
-                "--poll-seconds",
-                "0.5",
-                "--app-name",
-                app_name,
-            ]
+            runtime_executable = os.getenv("POCKETCODEX_RUNTIME_EXECUTABLE", "").strip()
+            runtime_script = os.getenv("POCKETCODEX_RUNTIME_SCRIPT", "").strip()
+            if runtime_executable:
+                command = [runtime_executable]
+                if runtime_script:
+                    command.append(runtime_script)
+                command.extend(
+                    [
+                        "--agent-mode",
+                        "--session",
+                        session_id,
+                        "--token",
+                        token,
+                        "--base-url",
+                        base_url,
+                        "--poll-seconds",
+                        "0.5",
+                        "--app-name",
+                        app_name,
+                    ]
+                )
+            else:
+                command = [
+                    sys.executable,
+                    str(BASE_DIR / "mac_agent.py"),
+                    "--session",
+                    session_id,
+                    "--token",
+                    token,
+                    "--base-url",
+                    base_url,
+                    "--poll-seconds",
+                    "0.5",
+                    "--app-name",
+                    app_name,
+                ]
             process = subprocess.Popen(
                 command,
                 cwd=BASE_DIR,
+                env=os.environ.copy(),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 stdin=subprocess.DEVNULL,
@@ -336,6 +366,7 @@ local_agent_manager = LocalAgentManager()
 
 
 def get_connection() -> sqlite3.Connection:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn

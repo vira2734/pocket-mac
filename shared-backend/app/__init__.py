@@ -1,0 +1,1 @@
+"""PocketCodex FastAPI package."""
