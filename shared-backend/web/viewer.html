@@ -97,6 +97,7 @@
       const controllerStatusNode = document.getElementById("controllerStatus");
       const historyNode = document.getElementById("history");
       const composerHistoryNode = document.getElementById("composerHistory");
+      const chatHistoryDetails = document.querySelector(".chat-history");
       const promptField = document.getElementById("prompt");
       const composerCard = document.getElementById("composerCard");
       const monitorPanel = document.getElementById("monitorPanel");
@@ -212,6 +213,8 @@
         sendButton.disabled = !connected || !hasControl;
         stopComposerButton.disabled = !connected || !hasControl;
         promptField.disabled = !connected;
+        chatHistoryDetails.open = connected ? chatHistoryDetails.open : false;
+        chatHistoryDetails.classList.toggle("is-disabled", !connected);
         composerCard.classList.toggle("is-disabled", !connected);
       }
 

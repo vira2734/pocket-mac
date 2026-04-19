@@ -236,6 +236,11 @@ video {
   overflow: hidden;
 }
 
+.chat-history.is-disabled {
+  opacity: 0.58;
+  pointer-events: none;
+}
+
 .chat-history-toggle {
   display: flex;
   align-items: center;
