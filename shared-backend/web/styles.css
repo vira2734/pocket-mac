@@ -319,6 +319,10 @@ video {
   margin-top: 14px;
 }
 
+.viewer-action-row .icon-action-button {
+  margin-left: auto;
+}
+
 .compact-status {
   min-height: 0;
   white-space: normal;

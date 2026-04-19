@@ -216,11 +216,21 @@
 
       async function toggleFullscreen() {
         try {
-          if (document.fullscreenElement) {
+          if (document.fullscreenElement || document.webkitFullscreenElement) {
             await document.exitFullscreen();
             return;
           }
-          await videoFrame.requestFullscreen();
+          if (videoFrame.requestFullscreen) {
+            await videoFrame.requestFullscreen();
+            return;
+          }
+          if (videoFrame.webkitRequestFullscreen) {
+            videoFrame.webkitRequestFullscreen();
+            return;
+          }
+          if (remoteVideo.webkitEnterFullscreen) {
+            remoteVideo.webkitEnterFullscreen();
+          }
         } catch (error) {
           console.debug("Fullscreen unavailable", error);
         }
