@@ -87,6 +87,29 @@ Not done yet:
 
 ## Architecture
 
+```mermaid
+flowchart LR
+    A["Mac user opens Pocket Mac"] --> B["Pocket Mac desktop launcher"]
+    B --> C["Local FastAPI control plane"]
+    B --> D["Local Mac agent"]
+    C --> E["Mac host page on localhost"]
+    E --> F["Safari screen share via WebRTC"]
+    C --> G["Create signed session links + QR"]
+    G --> H["Phone viewer in mobile browser"]
+    H --> C
+    H -->|"Connect / Focus / Execute / Stop"| C
+    C -->|"Queue commands"| D
+    D -->|"Activate Codex + paste / submit / interrupt"| I["Codex app on Mac"]
+    F -->|"Live stream"| H
+    C --> J{"Remote tunnel available?"}
+    J -->|Yes| K["Bundled cloudflared"]
+    J -->|Fallback| L["Bundled localtunnel"]
+    J -->|No| M["Same-Wi-Fi LAN link"]
+    K --> H
+    L --> H
+    M --> H
+```
+
 The prototype is split into three pieces:
 
 1. FastAPI control plane
