@@ -33,6 +33,7 @@ WEB_DIR = BASE_DIR / "web"
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 DEFAULT_ICE_SERVERS = [{"urls": "stun:stun.l.google.com:19302"}]
 CONTROL_LEASE_SECONDS = int(os.getenv("CONTROL_LEASE_SECONDS", "45"))
+REMOTE_TRIAL_START_ATTEMPTS = max(1, int(os.getenv("REMOTE_TRIAL_START_ATTEMPTS", "2")))
 
 try:
     ICE_SERVERS = json.loads(os.getenv("ICE_SERVERS_JSON", json.dumps(DEFAULT_ICE_SERVERS)))
@@ -746,6 +747,14 @@ def prepare_host(
     x_session_token: str | None = Header(default=None),
 ) -> dict[str, Any]:
     row = get_authorized_session(session_id, x_session_token)
+    remote_trial: dict[str, Any] | None = None
+    for _ in range(REMOTE_TRIAL_START_ATTEMPTS):
+        try:
+            remote_trial = remote_trial_manager.start(resolve_local_host_base_url(request))
+        except RuntimeError:
+            remote_trial = remote_trial_manager.status()
+        if remote_trial and remote_trial.get("active"):
+            break
     agent = local_agent_manager.start(
         session_id=session_id,
         token=row["access_token"],
@@ -754,6 +763,7 @@ def prepare_host(
     return {
         "session_id": session_id,
         "agent": agent,
+        "remote_trial": remote_trial,
         "links": build_session_urls(session_id, row["access_token"], request),
     }
 

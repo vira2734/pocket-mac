@@ -73,6 +73,7 @@
       const params = new URLSearchParams(window.location.search);
       const sessionId = params.get("session") || "demo123";
       const sessionToken = params.get("token") || "";
+      const autoStart = params.get("autostart") === "1";
 
       let socket;
       let peer;
@@ -208,6 +209,19 @@
           setStatus("Unable to prepare the local host flow.");
           return;
         }
+        const prepared = await prepareResponse.json();
+        const preparedLinks = prepared.links || {};
+        const remoteTrialReady = Boolean(prepared.remote_trial?.active);
+        const viewerUrl = preparedLinks.viewer_url || "";
+        if (!remoteTrialReady || !viewerUrl.startsWith("https://")) {
+          isConnecting = false;
+          updateConnectButton();
+          setStatus("Unable to start the remote phone link right now. Please try again.");
+          setPhoneStatus("Phone link unavailable.");
+          linkNode.textContent = "Remote phone link unavailable.";
+          viewerQr.classList.add("hidden");
+          return;
+        }
 
         socket = new WebSocket(`${wsBase(window.location.origin)}/ws/session/${sessionId}/host?token=${encodeURIComponent(sessionToken)}`);
 
@@ -216,10 +230,7 @@
           updateConnectButton();
           setStatus("Host connected. Starting full-screen sharing.");
           setPhoneStatus("Waiting for phone connection.");
-          const url = new URL("/viewer.html", config.public_base_url);
-          url.searchParams.set("session", sessionId);
-          url.searchParams.set("token", sessionToken);
-          linkNode.textContent = url.toString();
+          linkNode.textContent = viewerUrl;
           viewerQr.src = `/api/sessions/${sessionId}/qr.svg?kind=viewer&token=${encodeURIComponent(sessionToken)}`;
           viewerQr.classList.remove("hidden");
           startSharing().catch((error) => {
@@ -285,6 +296,15 @@
       connectButton.addEventListener("click", connectSocket);
       updateConnectButton();
       setPhoneStatus("Waiting for phone connection.");
+      if (autoStart) {
+        queueMicrotask(() => {
+          connectSocket().catch((error) => {
+            isConnecting = false;
+            updateConnectButton();
+            setStatus(error?.message || "Unable to prepare the host flow.");
+          });
+        });
+      }
     </script>
   </body>
 </html>

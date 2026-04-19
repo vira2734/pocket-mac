@@ -83,7 +83,9 @@
             throw new Error("Unable to create a session.");
           }
           const data = await response.json();
-          window.location.href = data.host_url;
+          const hostUrl = new URL(data.host_url);
+          hostUrl.searchParams.set("autostart", "1");
+          window.location.href = hostUrl.toString();
         } catch (error) {
           isStarting = false;
           setStartState("Stream Your Mac Controls to Your Phone", false);
