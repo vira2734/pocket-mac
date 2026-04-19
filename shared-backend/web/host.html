@@ -61,7 +61,6 @@
     </main>
 
     <script>
-      const sessionInput = document.getElementById("session");
       const connectButton = document.getElementById("connect");
       const preview = document.getElementById("preview");
       const warningNode = document.getElementById("warning");
@@ -72,7 +71,7 @@
       const connectLabelNode = document.getElementById("connectLabel");
 
       const params = new URLSearchParams(window.location.search);
-      sessionInput.value = params.get("session") || "demo123";
+      const sessionId = params.get("session") || "demo123";
       const sessionToken = params.get("token") || "";
 
       let socket;
@@ -197,7 +196,20 @@
         updateConnectButton();
         const config = await ensureRuntimeConfig();
         await ensureSession();
-        socket = new WebSocket(`${wsBase(window.location.origin)}/ws/session/${sessionInput.value}/host?token=${encodeURIComponent(sessionToken)}`);
+        const prepareResponse = await fetch(`/api/sessions/${sessionId}/host/prepare`, {
+          method: "POST",
+          headers: {
+            "X-Session-Token": sessionToken,
+          },
+        });
+        if (!prepareResponse.ok) {
+          isConnecting = false;
+          updateConnectButton();
+          setStatus("Unable to prepare the local host flow.");
+          return;
+        }
+
+        socket = new WebSocket(`${wsBase(window.location.origin)}/ws/session/${sessionId}/host?token=${encodeURIComponent(sessionToken)}`);
 
         socket.onopen = () => {
           isConnecting = false;
@@ -205,17 +217,17 @@
           setStatus("Host connected. Starting full-screen sharing.");
           setPhoneStatus("Waiting for phone connection.");
           const url = new URL("/viewer.html", config.public_base_url);
-          url.searchParams.set("session", sessionInput.value);
+          url.searchParams.set("session", sessionId);
           url.searchParams.set("token", sessionToken);
           linkNode.textContent = url.toString();
-          viewerQr.src = `/api/sessions/${sessionInput.value}/qr.svg?kind=viewer&token=${encodeURIComponent(sessionToken)}`;
+          viewerQr.src = `/api/sessions/${sessionId}/qr.svg?kind=viewer&token=${encodeURIComponent(sessionToken)}`;
           viewerQr.classList.remove("hidden");
           startSharing().catch((error) => {
             setStatus(`Unable to start sharing: ${error?.message || error}`);
           });
           clearInterval(heartbeatTimer);
           heartbeatTimer = setInterval(() => {
-            fetch(`/api/sessions/${sessionInput.value}/heartbeat`, {
+            fetch(`/api/sessions/${sessionId}/heartbeat`, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",

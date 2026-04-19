@@ -64,6 +64,7 @@ The prototype is split into three pieces:
    - supports native `focus` and `stop` style control actions from the phone viewer
    - replaces the existing draft in the focused Codex prompt field before pasting
    - optionally presses Return to submit
+   - can be auto-started by the host page for the active session
 
 ## Repo Layout
 
@@ -124,6 +125,9 @@ For a dry run that does not type into the Codex app:
 python3 mac_agent.py --session demo123 --token YOUR_SESSION_TOKEN --dry-run
 ```
 
+The streamlined host page can now start the local Mac agent automatically for the active session.
+The manual command above is still useful as a fallback and for debugging.
+
 ### 3. Open the host page on the Mac
 
 Open:
@@ -153,6 +157,7 @@ The current host UI intentionally exposes only one path:
 - one phone viewer link
 - one QR code
 - one phone connection status indicator
+- host click also starts the local Mac agent for that session
 
 Under the hood, the host flow now requests entire-screen sharing only. Safari still controls the
 final picker, so you will be asked to choose the full screen when sharing begins.

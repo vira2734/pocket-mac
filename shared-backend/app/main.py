@@ -10,6 +10,7 @@ import shutil
 import socket
 import sqlite3
 import subprocess
+import sys
 import threading
 import time
 from collections import defaultdict
@@ -259,6 +260,68 @@ class RemoteTrialManager:
 
 
 remote_trial_manager = RemoteTrialManager()
+
+
+class LocalAgentManager:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._processes: dict[str, subprocess.Popen[str]] = {}
+
+    def _reap_locked(self) -> None:
+        stale = [session_id for session_id, process in self._processes.items() if process.poll() is not None]
+        for session_id in stale:
+            self._processes.pop(session_id, None)
+
+    def start(self, session_id: str, token: str, base_url: str, app_name: str = "Codex") -> dict[str, Any]:
+        with self._lock:
+            self._reap_locked()
+            existing = self._processes.get(session_id)
+            if existing is not None and existing.poll() is None:
+                return {"running": True, "started": False, "pid": existing.pid}
+
+            command = [
+                sys.executable,
+                str(BASE_DIR / "mac_agent.py"),
+                "--session",
+                session_id,
+                "--token",
+                token,
+                "--base-url",
+                base_url,
+                "--poll-seconds",
+                "0.5",
+                "--app-name",
+                app_name,
+            ]
+            process = subprocess.Popen(
+                command,
+                cwd=BASE_DIR,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+                text=True,
+                start_new_session=True,
+            )
+            self._processes[session_id] = process
+            return {"running": True, "started": True, "pid": process.pid}
+
+    def stop_all(self) -> None:
+        with self._lock:
+            processes = list(self._processes.values())
+            self._processes.clear()
+
+        for process in processes:
+            try:
+                process.terminate()
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+            except OSError:
+                continue
+
+
+local_agent_manager = LocalAgentManager()
 
 
 def get_connection() -> sqlite3.Connection:
@@ -557,6 +620,7 @@ def on_startup() -> None:
 @app.on_event("shutdown")
 def on_shutdown() -> None:
     remote_trial_manager.stop()
+    local_agent_manager.stop_all()
 
 
 @app.get("/api/health")
@@ -673,6 +737,25 @@ def start_remote_trial(request: Request) -> dict[str, Any]:
 @app.post("/api/remote-trial/stop")
 def stop_remote_trial() -> dict[str, Any]:
     return remote_trial_manager.stop()
+
+
+@app.post("/api/sessions/{session_id}/host/prepare")
+def prepare_host(
+    session_id: str,
+    request: Request,
+    x_session_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    row = get_authorized_session(session_id, x_session_token)
+    agent = local_agent_manager.start(
+        session_id=session_id,
+        token=row["access_token"],
+        base_url=resolve_local_host_base_url(request),
+    )
+    return {
+        "session_id": session_id,
+        "agent": agent,
+        "links": build_session_urls(session_id, row["access_token"], request),
+    }
 
 
 @app.post("/api/sessions/{session_id}/heartbeat")
