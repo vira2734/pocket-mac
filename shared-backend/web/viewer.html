@@ -21,7 +21,7 @@
                   />
                 </svg>
               </span>
-              <span>Connect to Computer</span>
+              <span id="connectLabel">Connect to Computer</span>
             </span>
           </button>
         </div>
@@ -97,6 +97,7 @@
     <script>
       const sessionInput = document.getElementById("session");
       const connectButton = document.getElementById("connect");
+      const connectLabelNode = document.getElementById("connectLabel");
       const focusCodexButton = document.getElementById("focusCodex");
       const stopComposerButton = document.getElementById("stopComposer");
       const monitorToggleButton = document.getElementById("monitorToggle");
@@ -195,7 +196,7 @@
 
       function updateConnectButton() {
         const connected = isSocketConnected();
-        connectButton.textContent = connected
+        connectLabelNode.textContent = connected
           ? "Computer Connected"
           : isConnecting
             ? "Connecting to Computer..."
