@@ -21,40 +21,116 @@
         <input id="session" class="mono" placeholder="Leave blank to generate one" />
         <div class="row">
           <button id="create">Create Session</button>
+          <button id="startTrial" class="secondary">Start 10-Min Remote Trial</button>
+          <button id="stopTrial" class="secondary" disabled>Stop Remote Trial</button>
         </div>
         <div id="links" class="log status">Create a session to generate host and viewer links.</div>
-        <img id="viewerQr" alt="Viewer QR code" style="display:none;max-width:240px;width:100%;border-radius:16px;background:#fff;padding:10px;margin-top:16px" />
+        <p id="trialStatus" class="status">Remote trial inactive.</p>
+        <div class="grid two" style="margin-top:16px">
+          <div>
+            <p class="small">Adaptive Viewer QR</p>
+            <img id="viewerQr" alt="Viewer QR code" style="display:none;max-width:240px;width:100%;border-radius:16px;background:#fff;padding:10px" />
+          </div>
+          <div>
+            <p class="small">Local Network Viewer QR</p>
+            <img id="viewerLanQr" alt="Local network viewer QR code" style="display:none;max-width:240px;width:100%;border-radius:16px;background:#fff;padding:10px" />
+          </div>
+        </div>
       </section>
     </main>
 
     <script>
       const sessionInput = document.getElementById("session");
       const createButton = document.getElementById("create");
+      const startTrialButton = document.getElementById("startTrial");
+      const stopTrialButton = document.getElementById("stopTrial");
       const linksNode = document.getElementById("links");
+      const trialStatusNode = document.getElementById("trialStatus");
       const viewerQr = document.getElementById("viewerQr");
+      const viewerLanQr = document.getElementById("viewerLanQr");
       let runtimeConfig;
+      let currentSession;
 
       async function ensureRuntimeConfig() {
         if (runtimeConfig) {
           return runtimeConfig;
         }
+        return refreshRuntimeConfig();
+      }
+
+      async function refreshRuntimeConfig() {
         const response = await fetch("/api/runtime-config");
         runtimeConfig = await response.json();
+        renderTrialStatus();
         return runtimeConfig;
       }
 
+      function renderTrialStatus() {
+        const trial = runtimeConfig?.remote_trial;
+        if (!trial) {
+          trialStatusNode.textContent = "Remote trial inactive.";
+          startTrialButton.disabled = false;
+          stopTrialButton.disabled = true;
+          return;
+        }
+
+        if (trial.active) {
+          const expiresText = trial.expires_at ? ` Expires at ${trial.expires_at}.` : "";
+          trialStatusNode.textContent =
+            `Remote trial active via ${trial.provider}: ${trial.public_url}.${expiresText}`;
+          startTrialButton.disabled = true;
+          stopTrialButton.disabled = false;
+          return;
+        }
+
+        if (trial.starting) {
+          trialStatusNode.textContent = "Remote trial is starting. Waiting for public URL.";
+          startTrialButton.disabled = true;
+          stopTrialButton.disabled = false;
+          return;
+        }
+
+        const suffix = trial.last_error ? ` Last error: ${trial.last_error}` : "";
+        trialStatusNode.textContent = `Remote trial inactive.${suffix}`;
+        startTrialButton.disabled = false;
+        stopTrialButton.disabled = true;
+      }
+
       async function renderLinks(data) {
+        currentSession = data;
+        await refreshRuntimeConfig();
         linksNode.textContent =
           `Session: ${data.session_id}\n` +
           `Host URL (open on Mac): ${data.host_url}\n` +
           `Host URL (public fallback): ${data.host_public_url}\n` +
-          `Viewer URL: ${data.viewer_url}\n` +
-          `Viewer QR: ${data.viewer_qr_url}\n\n` +
-          `Important: open the host link on the Mac using localhost. The phone should use the viewer link or QR code.\n\n` +
+          `Viewer URL (adaptive): ${data.viewer_url}\n` +
+          `Viewer URL (same Wi-Fi): ${data.viewer_lan_url}\n` +
+          `Viewer QR (adaptive): ${data.viewer_qr_url}\n` +
+          `Viewer QR (same Wi-Fi): ${data.viewer_lan_qr_url}\n\n` +
+          `Important: open the host link on the Mac using localhost. On the phone, use the adaptive viewer link for a remote trial tunnel and the local-network link when both devices are on the same Wi-Fi.\n\n` +
           `Save these tokenized links. Existing session ids cannot be reclaimed without the original link.\n\n` +
           `Start the Mac agent with:\npython3 mac_agent.py --session ${data.session_id} --token ${data.access_token} --base-url ${runtimeConfig.local_host_base_url}`;
         viewerQr.src = data.viewer_qr_url;
+        viewerLanQr.src = data.viewer_lan_qr_url;
         viewerQr.style.display = "block";
+        viewerLanQr.style.display = "block";
+      }
+
+      async function refreshSessionLinks() {
+        if (!currentSession) {
+          return;
+        }
+        const response = await fetch(`/api/sessions/${currentSession.session_id}?token=${encodeURIComponent(currentSession.access_token)}`);
+        if (!response.ok) {
+          return;
+        }
+        const data = await response.json();
+        currentSession = {
+          session_id: currentSession.session_id,
+          access_token: currentSession.access_token,
+          ...data.links,
+        };
+        renderLinks(currentSession);
       }
 
       async function createSession() {
@@ -77,7 +153,36 @@
         renderLinks(data);
       }
 
+      async function startTrial() {
+        await ensureRuntimeConfig();
+        startTrialButton.disabled = true;
+        trialStatusNode.textContent = "Starting remote trial tunnel...";
+        const response = await fetch("/api/remote-trial/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ duration_minutes: 10 }),
+        });
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({ detail: "Remote trial failed to start." }));
+          trialStatusNode.textContent = error.detail || "Remote trial failed to start.";
+          await refreshRuntimeConfig();
+          return;
+        }
+        await refreshRuntimeConfig();
+        await refreshSessionLinks();
+      }
+
+      async function stopTrial() {
+        stopTrialButton.disabled = true;
+        await fetch("/api/remote-trial/stop", { method: "POST" });
+        await refreshRuntimeConfig();
+        await refreshSessionLinks();
+      }
+
       createButton.addEventListener("click", createSession);
+      startTrialButton.addEventListener("click", startTrial);
+      stopTrialButton.addEventListener("click", stopTrial);
+      refreshRuntimeConfig();
     </script>
   </body>
 </html>

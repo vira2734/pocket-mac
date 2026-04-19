@@ -3,10 +3,17 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import secrets
+import shlex
+import shutil
 import socket
 import sqlite3
+import subprocess
+import threading
+import time
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +31,8 @@ DB_PATH = BASE_DIR / "control.db"
 WEB_DIR = BASE_DIR / "web"
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 DEFAULT_ICE_SERVERS = [{"urls": "stun:stun.l.google.com:19302"}]
+REMOTE_TRIAL_DEFAULT_MINUTES = int(os.getenv("REMOTE_TRIAL_DEFAULT_MINUTES", "10"))
+REMOTE_TRIAL_MAX_MINUTES = int(os.getenv("REMOTE_TRIAL_MAX_MINUTES", "30"))
 
 try:
     ICE_SERVERS = json.loads(os.getenv("ICE_SERVERS_JSON", json.dumps(DEFAULT_ICE_SERVERS)))
@@ -54,6 +63,10 @@ class CommandComplete(BaseModel):
     detail: str = Field(..., min_length=1, max_length=12000)
 
 
+class RemoteTrialStart(BaseModel):
+    duration_minutes: int = Field(default=REMOTE_TRIAL_DEFAULT_MINUTES, ge=1, le=REMOTE_TRIAL_MAX_MINUTES)
+
+
 app = FastAPI(title="PocketCodex", version="0.2.0")
 app.add_middleware(
     CORSMiddleware,
@@ -64,6 +77,193 @@ app.add_middleware(
 )
 
 active_sockets: dict[str, list[WebSocket]] = defaultdict(list)
+
+
+def utc_timestamp(value: float | None) -> str | None:
+    if value is None:
+        return None
+    return datetime.fromtimestamp(value, tz=timezone.utc).isoformat()
+
+
+class RemoteTrialManager:
+    TUNNEL_HOST_PATTERN = re.compile(
+        r"https://[A-Za-z0-9.-]+\.(?:trycloudflare\.com|[A-Za-z0-9-]+\.ts\.net)(?:/[^\s|]*)?"
+    )
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._condition = threading.Condition(self._lock)
+        self._process: subprocess.Popen[str] | None = None
+        self._public_url: str | None = None
+        self._provider: str | None = None
+        self._started_at: float | None = None
+        self._expires_at: float | None = None
+        self._duration_minutes: int | None = None
+        self._last_error: str | None = None
+        self._log_lines: list[str] = []
+        self._stop_timer: threading.Timer | None = None
+
+    def _append_log(self, line: str) -> None:
+        clean = line.strip()
+        if not clean:
+            return
+        self._log_lines.append(clean)
+        self._log_lines = self._log_lines[-20:]
+
+    def _snapshot_locked(self, include_logs: bool = False) -> dict[str, Any]:
+        active = self._process is not None and self._process.poll() is None and self._public_url is not None
+        starting = self._process is not None and self._process.poll() is None and self._public_url is None
+        snapshot = {
+            "active": active,
+            "starting": starting,
+            "provider": self._provider,
+            "public_url": self._public_url,
+            "started_at": utc_timestamp(self._started_at),
+            "expires_at": utc_timestamp(self._expires_at),
+            "duration_minutes": self._duration_minutes,
+            "last_error": self._last_error,
+        }
+        if include_logs:
+            snapshot["logs"] = list(self._log_lines)
+        return snapshot
+
+    def status(self) -> dict[str, Any]:
+        with self._lock:
+            self._reap_locked()
+            return self._snapshot_locked()
+
+    def public_url(self) -> str | None:
+        with self._lock:
+            self._reap_locked()
+            return self._public_url
+
+    def _reap_locked(self) -> None:
+        if self._process is None:
+            return
+        if self._process.poll() is None:
+            return
+        if self._public_url is None and self._last_error is None:
+            self._last_error = "Remote trial tunnel exited before publishing a URL."
+        self._clear_process_locked(keep_url=False)
+
+    def _clear_process_locked(self, keep_url: bool) -> None:
+        if self._stop_timer is not None:
+            self._stop_timer.cancel()
+            self._stop_timer = None
+        self._process = None
+        if not keep_url:
+            self._public_url = None
+            self._provider = None
+            self._started_at = None
+            self._expires_at = None
+            self._duration_minutes = None
+        self._condition.notify_all()
+
+    def _terminate_locked(self) -> None:
+        process = self._process
+        self._clear_process_locked(keep_url=False)
+        if process is None:
+            return
+        try:
+            process.terminate()
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+        except OSError:
+            return
+
+    def stop(self) -> dict[str, Any]:
+        with self._lock:
+            self._terminate_locked()
+            self._last_error = None
+            return self._snapshot_locked()
+
+    def _build_command(self, target_url: str) -> tuple[list[str], str]:
+        custom = os.getenv("POCKETCODEX_TUNNEL_COMMAND", "").strip()
+        if custom:
+            command = [part.format(target=target_url) for part in shlex.split(custom)]
+            return command, "custom"
+
+        cloudflared = shutil.which("cloudflared")
+        if cloudflared:
+            return [cloudflared, "tunnel", "--url", target_url], "cloudflared"
+
+        wrangler = shutil.which("wrangler")
+        if wrangler:
+            return [wrangler, "tunnel", "quick-start", target_url], "wrangler"
+
+        npx = shutil.which("npx")
+        if npx:
+            return [npx, "--yes", "wrangler@latest", "tunnel", "quick-start", target_url], "wrangler"
+
+        raise RuntimeError("No Cloudflare tunnel launcher found. Install cloudflared or use npx.")
+
+    def _watch_process(self, process: subprocess.Popen[str]) -> None:
+        assert process.stdout is not None
+        for line in process.stdout:
+            with self._lock:
+                if self._process is not process:
+                    return
+                self._append_log(line)
+                if self._public_url is None:
+                    match = self.TUNNEL_HOST_PATTERN.search(line)
+                    if match:
+                        self._public_url = match.group(0).rstrip("/").rstrip("|")
+                        self._condition.notify_all()
+
+        return_code = process.wait()
+        with self._lock:
+            if self._process is not process:
+                return
+            if return_code != 0 and self._last_error is None:
+                self._last_error = f"Remote trial tunnel exited with status {return_code}."
+            self._clear_process_locked(keep_url=False)
+
+    def start(self, target_url: str, duration_minutes: int) -> dict[str, Any]:
+        with self._lock:
+            self._reap_locked()
+            if self._process is not None and self._process.poll() is None:
+                return self._snapshot_locked()
+
+            self._last_error = None
+            self._log_lines = []
+            command, provider = self._build_command(target_url)
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                text=True,
+                bufsize=1,
+            )
+            self._process = process
+            self._provider = provider
+            self._started_at = time.time()
+            self._duration_minutes = duration_minutes
+            self._expires_at = self._started_at + (duration_minutes * 60)
+            self._public_url = None
+            self._stop_timer = threading.Timer(duration_minutes * 60, self.stop)
+            self._stop_timer.daemon = True
+            self._stop_timer.start()
+            threading.Thread(target=self._watch_process, args=(process,), daemon=True).start()
+
+            deadline = time.time() + 25
+            while self._public_url is None and self._last_error is None and time.time() < deadline:
+                remaining = deadline - time.time()
+                self._condition.wait(timeout=min(remaining, 1))
+                self._reap_locked()
+
+            if self._public_url is None:
+                if self._last_error is None:
+                    self._last_error = "Timed out waiting for the remote trial tunnel URL."
+                self._terminate_locked()
+                raise RuntimeError(self._last_error)
+
+            return self._snapshot_locked()
+
+
+remote_trial_manager = RemoteTrialManager()
 
 
 def get_connection() -> sqlite3.Connection:
@@ -175,14 +375,22 @@ def with_port(scheme: str, host: str, port: int) -> str:
     return f"{scheme}://{host}:{port}"
 
 
-def resolve_public_base_url(request: Request | None) -> str:
-    if PUBLIC_BASE_URL:
-        return PUBLIC_BASE_URL
-
+def resolve_lan_base_url(request: Request | None) -> str:
     scheme = resolve_request_scheme(request)
     port = resolve_request_port(request)
     host = detect_lan_ip()
     return with_port(scheme, host, port)
+
+
+def resolve_public_base_url(request: Request | None) -> str:
+    remote_trial_url = remote_trial_manager.public_url()
+    if remote_trial_url:
+        return remote_trial_url
+
+    if PUBLIC_BASE_URL:
+        return PUBLIC_BASE_URL
+
+    return resolve_lan_base_url(request)
 
 
 def resolve_local_host_base_url(request: Request | None) -> str:
@@ -193,17 +401,22 @@ def resolve_local_host_base_url(request: Request | None) -> str:
 
 def build_session_urls(session_id: str, access_token: str, request: Request | None) -> dict[str, str]:
     local_host_base = resolve_local_host_base_url(request)
+    lan_base = resolve_lan_base_url(request)
     public_base = resolve_public_base_url(request)
     host_url = f"{local_host_base}/host.html?session={session_id}&token={access_token}"
     host_public_url = f"{public_base}/host.html?session={session_id}&token={access_token}"
     viewer_url = f"{public_base}/viewer.html?session={session_id}&token={access_token}"
+    viewer_lan_url = f"{lan_base}/viewer.html?session={session_id}&token={access_token}"
     return {
         "host_url": host_url,
         "host_local_url": host_url,
         "host_public_url": host_public_url,
         "viewer_url": viewer_url,
+        "viewer_public_url": viewer_url,
+        "viewer_lan_url": viewer_lan_url,
         "host_qr_url": f"{public_base}/api/sessions/{session_id}/qr.svg?kind=host&token={access_token}",
         "viewer_qr_url": f"{public_base}/api/sessions/{session_id}/qr.svg?kind=viewer&token={access_token}",
+        "viewer_lan_qr_url": f"{lan_base}/api/sessions/{session_id}/qr.svg?kind=viewer_lan&token={access_token}",
     }
 
 
@@ -254,6 +467,11 @@ def on_startup() -> None:
     init_db()
 
 
+@app.on_event("shutdown")
+def on_shutdown() -> None:
+    remote_trial_manager.stop()
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -263,8 +481,10 @@ def health() -> dict[str, str]:
 def runtime_config(request: Request) -> dict[str, Any]:
     return {
         "public_base_url": resolve_public_base_url(request),
+        "lan_base_url": resolve_lan_base_url(request),
         "local_host_base_url": resolve_local_host_base_url(request),
         "ice_servers": ICE_SERVERS,
+        "remote_trial": remote_trial_manager.status(),
     }
 
 
@@ -330,14 +550,39 @@ def get_session(
 @app.get("/api/sessions/{session_id}/qr.svg")
 def session_qr(
     session_id: str,
-    kind: str = Query(pattern="^(host|viewer)$"),
+    kind: str = Query(pattern="^(host|viewer|viewer_lan)$"),
     token: str | None = Query(default=None),
     request: Request = None,
 ) -> Response:
     row = get_authorized_session(session_id, token)
     urls = build_session_urls(session_id, row["access_token"], request)
-    target = urls["host_url"] if kind == "host" else urls["viewer_url"]
+    if kind == "host":
+        target = urls["host_url"]
+    elif kind == "viewer_lan":
+        target = urls["viewer_lan_url"]
+    else:
+        target = urls["viewer_url"]
     return Response(content=make_qr_svg(target), media_type="image/svg+xml")
+
+
+@app.get("/api/remote-trial")
+def remote_trial_status() -> dict[str, Any]:
+    return remote_trial_manager.status()
+
+
+@app.post("/api/remote-trial/start")
+def start_remote_trial(payload: RemoteTrialStart, request: Request) -> dict[str, Any]:
+    target_url = resolve_local_host_base_url(request)
+    try:
+        remote_trial = remote_trial_manager.start(target_url, payload.duration_minutes)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return remote_trial
+
+
+@app.post("/api/remote-trial/stop")
+def stop_remote_trial() -> dict[str, Any]:
+    return remote_trial_manager.stop()
 
 
 @app.post("/api/sessions/{session_id}/heartbeat")

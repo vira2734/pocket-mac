@@ -23,12 +23,13 @@ Implemented and smoke-tested locally:
 - mobile viewer page for watching the stream and sending prompts
 - presence and recent-command status in the phone UI
 - Mac agent that polls for commands and can inject prompts into the Codex app using AppleScript
+- temporary Cloudflare Quick Tunnel-style remote trial flow with automatic expiry support
 - API smoke test for session, command queue, and WebSocket relay flows
 
 Not done yet:
 
 - native macOS app packaging
-- TURN/STUN hardening for internet-grade connectivity
+- TURN/STUN hardening for internet-grade connectivity beyond trial tunnels
 - full remote mouse and keyboard control
 - persistent auth and multi-device account management
 
@@ -43,12 +44,14 @@ The prototype is split into three pieces:
    - refuses duplicate session ids so links cannot be re-minted by id alone
    - tracks host, viewer, and agent heartbeats
    - relays WebRTC signaling messages over WebSocket
+   - can start a short-lived remote trial tunnel and swap viewer links to that public URL
 
 2. Mac host
    - opens the host page on `localhost` in a browser
    - captures the selected screen or app window with `getDisplayMedia`
    - exposes separate actions for window sharing and full-screen sharing
    - displays a QR code for the token-protected phone viewer link
+   - keeps using `localhost` for the host page even when a remote trial tunnel is active
    - streams the media to the phone browser using WebRTC
 
 3. Mac agent
@@ -67,6 +70,7 @@ The prototype is split into three pieces:
 - `shared-backend/web/viewer.html`: mobile viewer/control page
 - `shared-backend/web/index.html`: landing page
 - `shared-backend/scripts/smoke_test.py`: local API smoke test
+- `shared-backend/scripts/fake_tunnel.py`: deterministic test helper for the remote trial flow
 
 ## Quick Start
 
@@ -93,6 +97,15 @@ Recommended secure deployment shape:
 - keep the generated tokenized links private
 - configure your own TURN server in `ICE_SERVERS_JSON`
 - prefer a dedicated small VPS or Cloudflare/Tailscale-style entry point over exposing a raw home IP
+
+For quick public testing without running your own infra, PocketCodex now has a temporary remote trial mode:
+
+- it starts a short-lived public tunnel to the local FastAPI service
+- it keeps the Mac host page on `localhost`
+- it switches the adaptive phone viewer link and QR code to the public tunnel URL
+- it still shows a separate same-Wi-Fi viewer link and QR code
+
+The current implementation prefers `cloudflared` if present and otherwise falls back to `npx wrangler@latest tunnel quick-start`.
 
 ### 2. Start the Mac agent
 
@@ -121,9 +134,11 @@ The launch page now also shows:
 - the localhost host link meant for the Mac
 - the public/LAN viewer link meant for the phone
 - the viewer QR code itself for immediate phone scanning
+- a second viewer QR code for same-Wi-Fi testing
 - the viewer QR code URL
 - the host public fallback URL
 - the exact `mac_agent.py` command including the session token and localhost base URL
+- controls to start and stop a `10` minute remote trial tunnel
 
 ### 4. Open the host page on the Mac
 
@@ -142,6 +157,22 @@ Safari still controls the final picker, but the UI now makes the intended choice
 Use the generated viewer link from the launch page.
 
 If you are testing outside your local network, put the server behind a secure tunnel or relay.
+
+### 6. Remote Trial
+
+From the launch page you can click `Start 10-Min Remote Trial`.
+
+That does three things:
+
+- starts a temporary public tunnel to the local PocketCodex server
+- updates the adaptive viewer link and QR code to the public tunnel URL
+- keeps the separate same-Wi-Fi viewer link available as a fallback
+
+Important limitations:
+
+- the trial lasts only while the tunnel process is alive and is auto-stopped after the configured trial window
+- the public tunnel URL is internet-reachable, so the session token in the generated link is still sensitive
+- this is meant for testing and demos, not production-grade uptime
 
 ## Local Testing
 
@@ -165,6 +196,7 @@ This validates:
 - token-protected access control
 - WebSocket viewer/host message relay
 - QR SVG generation
+- remote trial start and stop behavior using a fake tunnel helper
 - static pages
 
 ## macOS Permissions
@@ -187,6 +219,7 @@ stream testing.
 - Prompt injection now replaces the existing Codex draft by default, which avoids accidental prompt concatenation during phone control.
 - The viewer page now shows recent command results and whether the host and agent appear online.
 - Set `PUBLIC_BASE_URL` to a public HTTPS URL if you want QR codes that open correctly off-network.
+- The launch page now offers both an adaptive viewer QR and a same-Wi-Fi viewer QR. When a remote trial tunnel is active, the adaptive QR points at the public tunnel.
 - For reliable cross-network streaming, configure a TURN server in `ICE_SERVERS_JSON`.
 - Reusing a session now means reopening its original signed host/viewer link, not recreating the session by id.
 

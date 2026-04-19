@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import subprocess
+import sys
 import time
 import urllib.request
 from pathlib import Path
@@ -50,9 +52,14 @@ def wait_for_server(url: str, attempts: int = 30) -> None:
 
 
 def main() -> None:
+    env = os.environ.copy()
+    env["POCKETCODEX_TUNNEL_COMMAND"] = (
+        f"{sys.executable} {BASE_DIR / 'scripts' / 'fake_tunnel.py'} {{target}}"
+    )
     process = subprocess.Popen(
         ["uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8011"],
         cwd=BASE_DIR,
+        env=env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -71,15 +78,19 @@ def main() -> None:
         auth = {"X-Session-Token": token}
         runtime = fetch_json("http://127.0.0.1:8011/api/runtime-config")
         assert runtime["local_host_base_url"] == "http://127.0.0.1:8011"
+        assert runtime["lan_base_url"].startswith("http://")
         assert runtime["public_base_url"].startswith("http://")
+        assert runtime["remote_trial"]["active"] is False
         assert session["host_url"].startswith("http://127.0.0.1:8011/host.html")
         assert session["host_local_url"] == session["host_url"]
         assert session["host_public_url"].endswith(f"session={session_id}&token={token}")
+        assert session["viewer_lan_url"].endswith(f"session={session_id}&token={token}")
 
         session_state = fetch_json(f"http://127.0.0.1:8011/api/sessions/{session_id}", headers=auth)
         assert session_state["session"]["id"] == session_id
         assert session_state["links"]["host_url"].startswith("http://127.0.0.1:8011/host.html")
         assert session_state["links"]["viewer_url"].endswith(f"session={session_id}&token={token}")
+        assert session_state["links"]["viewer_lan_url"].endswith(f"session={session_id}&token={token}")
 
         heartbeat = fetch_json(
             f"http://127.0.0.1:8011/api/sessions/{session_id}/heartbeat",
@@ -142,6 +153,33 @@ def main() -> None:
 
         qr_svg = fetch_text(f"http://127.0.0.1:8011/api/sessions/{session_id}/qr.svg?kind=viewer&token={token}")
         assert "<svg" in qr_svg
+        qr_lan_svg = fetch_text(
+            f"http://127.0.0.1:8011/api/sessions/{session_id}/qr.svg?kind=viewer_lan&token={token}"
+        )
+        assert "<svg" in qr_lan_svg
+
+        remote_trial = fetch_json(
+            "http://127.0.0.1:8011/api/remote-trial/start",
+            method="POST",
+            payload={"duration_minutes": 10},
+        )
+        assert remote_trial["active"] is True
+        assert remote_trial["public_url"] == "https://pocketcodex-demo.trycloudflare.com"
+
+        runtime_with_trial = fetch_json("http://127.0.0.1:8011/api/runtime-config")
+        assert runtime_with_trial["public_base_url"] == "https://pocketcodex-demo.trycloudflare.com"
+        assert runtime_with_trial["remote_trial"]["active"] is True
+
+        session_with_trial = fetch_json(f"http://127.0.0.1:8011/api/sessions/{session_id}", headers=auth)
+        assert session_with_trial["links"]["viewer_url"].startswith("https://pocketcodex-demo.trycloudflare.com")
+        assert session_with_trial["links"]["viewer_lan_url"].startswith("http://")
+
+        stopped_trial = fetch_json(
+            "http://127.0.0.1:8011/api/remote-trial/stop",
+            method="POST",
+            payload={},
+        )
+        assert stopped_trial["active"] is False
 
         duplicate_failed = False
         try:
@@ -158,7 +196,8 @@ def main() -> None:
         host_html = fetch_text("http://127.0.0.1:8011/host.html")
         viewer_html = fetch_text("http://127.0.0.1:8011/viewer.html")
         assert "Host URL (open on Mac)" in index_html
-        assert "Viewer QR" in index_html
+        assert "Adaptive Viewer QR" in index_html
+        assert "10-Min Remote Trial" in index_html
         assert "localhost or HTTPS" in host_html
         assert "Share Window" in host_html
         assert "Share Entire Screen" in host_html

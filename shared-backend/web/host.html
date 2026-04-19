@@ -161,7 +161,7 @@
       async function connectSocket() {
         const config = await ensureRuntimeConfig();
         await ensureSession();
-        socket = new WebSocket(`${wsBase(config.public_base_url)}/ws/session/${sessionInput.value}/host?token=${encodeURIComponent(sessionToken)}`);
+        socket = new WebSocket(`${wsBase(window.location.origin)}/ws/session/${sessionInput.value}/host?token=${encodeURIComponent(sessionToken)}`);
 
         socket.onopen = () => {
           setStatus("Host connected. Choose window share or full-screen share.");
