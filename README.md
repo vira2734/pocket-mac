@@ -17,7 +17,7 @@ Implemented and smoke-tested locally:
 - token-protected host, viewer, and agent access per session
 - session ids are write-once so a guessed id cannot be reclaimed for a token
 - WebSocket signaling for WebRTC offer/answer exchange
-- launch page that creates a session id and displays signed host/viewer links
+- launch page that creates a session behind the scenes and redirects into the host flow
 - QR-ready viewer links generated from the active session
 - browser host page for Mac screen sharing
 - mobile viewer page for watching the stream, taking control, and sending native actions
@@ -136,16 +136,12 @@ Open:
 
 Create a session there, then use the generated host and viewer links.
 
-The launch page now also shows:
+The launch page is now intentionally simple:
 
-- the localhost host link meant for the Mac
-- the public/LAN viewer link meant for the phone
-- the viewer QR code itself for immediate phone scanning
-- a second viewer QR code for same-Wi-Fi testing
-- the viewer QR code URL
-- the host public fallback URL
-- the exact `mac_agent.py` command including the session token and localhost base URL
-- controls to start and stop a remote trial tunnel
+- one start button on the Mac
+- session creation happens behind the scenes
+- the page redirects into the host flow automatically
+- the host flow then shows the single phone link, single QR code, and phone connection status
 
 ### 4. Open the host page on the Mac
 
@@ -236,6 +232,7 @@ stream testing.
 - The Mac agent targets an app named `Codex` by default.
 - Safari screen sharing works when the host page is opened on `localhost` or HTTPS. The app now generates a localhost host link for the Mac by default and warns if the host page is opened from a plain LAN HTTP origin.
 - The host page is now intentionally simplified to one visible streaming path. Local-network support still exists in the codebase and launch flow, but the host UI only exposes a single phone link/QR and entire-screen sharing.
+- The launch page is also intentionally simplified to a single start action. Session ids and tokenized links still exist internally, but they are no longer exposed as a setup step in the main UI.
 - Prompt injection now replaces the existing Codex draft by default, which avoids accidental prompt concatenation during phone control.
 - The viewer page now shows recent command results, controller status, and whether the host and agent appear online.
 - Set `PUBLIC_BASE_URL` to a public HTTPS URL if you want QR codes that open correctly off-network.

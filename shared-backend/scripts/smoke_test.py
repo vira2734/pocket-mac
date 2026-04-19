@@ -235,9 +235,8 @@ def main() -> None:
         index_html = fetch_text("http://127.0.0.1:8011/")
         host_html = fetch_text("http://127.0.0.1:8011/host.html")
         viewer_html = fetch_text("http://127.0.0.1:8011/viewer.html")
-        assert "Host URL (open on Mac)" in index_html
-        assert "Adaptive Viewer QR" in index_html
-        assert "Start Remote Trial" in index_html
+        assert "Stream Your Mac Controls to Your Phone" in index_html
+        assert "Creating a local session and opening the host flow" in index_html
         assert "localhost or HTTPS" in host_html
         assert "Stream your Mac controls to your phone." in host_html
         assert "Phone Status" in host_html
