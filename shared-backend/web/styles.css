@@ -134,14 +134,6 @@ video {
   color: #d9f2ff;
 }
 
-.log {
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: rgba(4, 10, 19, 0.75);
-  min-height: 84px;
-  white-space: pre-wrap;
-}
-
 .viewer-shell {
   padding-bottom: 120px;
 }
