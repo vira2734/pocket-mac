@@ -1,8 +1,16 @@
 # Pocket Mac
 
-Pocket Mac lets you open Codex on your Mac and control it from your phone in a few clicks.
+Pocket Mac lets you open OpenAI ChatGPT Codex on your Mac and control it from your phone in a few clicks.
 
-The goal is simple: keep Codex running locally on your Mac, stream that experience to your phone, and let your phone act like a lightweight remote control for prompts, focus, and stop actions.
+The goal is simple: keep OpenAI ChatGPT Codex running locally on your Mac, stream that experience to your phone, and let your phone act like a lightweight remote control for prompts, focus, stop actions, and your wider computer workflow.
+
+Pocket Mac is not just a prompt relay. It is built around the idea of computer use:
+
+- view your Mac live from your phone
+- control the full computer session remotely
+- focus Codex instantly without hunting through windows
+- send prompts into OpenAI ChatGPT Codex from your phone
+- use the same flow for broader desktop tasks around Codex
 
 <table>
   <tr>
@@ -17,9 +25,9 @@ The goal is simple: keep Codex running locally on your Mac, stream that experien
 
 What it does well today:
 
-- stream your Mac screen to a phone browser
+- stream your full Mac screen to a phone browser
 - open one clean QR code flow from the Mac
-- let your phone focus Codex and send prompts
+- let your phone focus OpenAI ChatGPT Codex and send prompts
 - auto-start the local Mac agent for the active session
 - create a remote phone link with bundled tunnel tools, with same-Wi-Fi fallback if needed
 
