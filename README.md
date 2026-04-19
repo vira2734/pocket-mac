@@ -1,8 +1,8 @@
 # Pocket Mac
 
-Pocket Mac lets you talk to your computer from your phone and use OpenAI ChatGPT Codex on your Mac from anywhere.
+Pocket Mac brings OpenAI ChatGPT Codex computer use to your phone, so you can use your Mac from anywhere.
 
-The goal is simple: keep OpenAI ChatGPT Codex running locally on your Mac, stream that experience to your phone, and let your phone act like a lightweight remote control for prompts, focus, stop actions, and your wider computer workflow.
+It turns your phone into a live remote for your Mac: you can watch Codex work, steer it in real time, stop it anytime, and keep full visibility while it handles real computer tasks.
 
 Think of it as computer use from your pocket:
 
