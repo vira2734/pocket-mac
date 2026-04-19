@@ -24,7 +24,7 @@ Implemented and smoke-tested locally:
 - single-controller lease so only one connected viewer can issue commands at a time
 - presence and recent-command status in the phone UI
 - Mac agent that polls for commands and can inject prompts, focus Codex, and send Escape via AppleScript
-- temporary Cloudflare Quick Tunnel-style remote trial flow
+- temporary public-tunnel remote trial flow with automatic fallback
 - API smoke test for session, command queue, and WebSocket relay flows
 
 Not done yet:
@@ -109,7 +109,11 @@ For quick public testing without running your own infra, PocketCodex now has a t
 - it switches the adaptive phone viewer link and QR code to the public tunnel URL
 - it still shows a separate same-Wi-Fi viewer link and QR code
 
-The current implementation prefers `cloudflared` if present and otherwise falls back to `npx wrangler@latest tunnel quick-start`.
+The current implementation tries tunnel providers in this order:
+
+- `cloudflared` if installed locally
+- `npx wrangler@latest tunnel quick-start`
+- `npx localtunnel --port ...` as an automatic fallback when Quick Tunnel flakes
 
 ### 2. Start the Mac agent
 
@@ -173,7 +177,7 @@ The viewer is now a hybrid remote console:
 
 ### 6. Remote Trial
 
-From the launch page you can click `Start Remote Trial`.
+The one-click launch flow now starts the remote phone path automatically during host preparation.
 
 That does three things:
 
@@ -236,7 +240,7 @@ stream testing.
 - Prompt injection now replaces the existing Codex draft by default, which avoids accidental prompt concatenation during phone control.
 - The viewer page now shows recent command results, controller status, and whether the host and agent appear online.
 - Set `PUBLIC_BASE_URL` to a public HTTPS URL if you want QR codes that open correctly off-network.
-- The launch page now offers both an adaptive viewer QR and a same-Wi-Fi viewer QR. When a remote trial tunnel is active, the adaptive QR points at the public tunnel.
+- The current host flow prefers a public remote-trial phone link and only falls back internally when a tunnel provider is unavailable.
 - For reliable cross-network streaming, configure a TURN server in `ICE_SERVERS_JSON`.
 - Reusing a session now means reopening its original signed host/viewer link, not recreating the session by id.
 

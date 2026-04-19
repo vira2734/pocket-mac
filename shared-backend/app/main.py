@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+from urllib.parse import urlparse
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -99,7 +100,7 @@ def utc_timestamp(value: float | None) -> str | None:
 
 class RemoteTrialManager:
     TUNNEL_HOST_PATTERN = re.compile(
-        r"https://[A-Za-z0-9.-]+\.(?:trycloudflare\.com|[A-Za-z0-9-]+\.ts\.net)(?:/[^\s|]*)?"
+        r"https://[A-Za-z0-9.-]+\.(?:trycloudflare\.com|[A-Za-z0-9-]+\.ts\.net|loca\.lt)(?:/[^\s|]*)?"
     )
 
     def __init__(self) -> None:
@@ -181,25 +182,31 @@ class RemoteTrialManager:
             self._last_error = None
             return self._snapshot_locked()
 
-    def _build_command(self, target_url: str) -> tuple[list[str], str]:
+    def _command_candidates(self, target_url: str) -> list[tuple[list[str], str]]:
+        candidates: list[tuple[list[str], str]] = []
+        parsed_target = urlparse(target_url)
+        target_port = str(parsed_target.port or (443 if parsed_target.scheme == "https" else 80))
         custom = os.getenv("POCKETCODEX_TUNNEL_COMMAND", "").strip()
         if custom:
             command = [part.format(target=target_url) for part in shlex.split(custom)]
-            return command, "custom"
+            return [(command, "custom")]
 
         cloudflared = shutil.which("cloudflared")
         if cloudflared:
-            return [cloudflared, "tunnel", "--url", target_url], "cloudflared"
+            candidates.append(([cloudflared, "tunnel", "--url", target_url], "cloudflared"))
 
         wrangler = shutil.which("wrangler")
         if wrangler:
-            return [wrangler, "tunnel", "quick-start", target_url], "wrangler"
+            candidates.append(([wrangler, "tunnel", "quick-start", target_url], "wrangler"))
 
         npx = shutil.which("npx")
         if npx:
-            return [npx, "--yes", "wrangler@latest", "tunnel", "quick-start", target_url], "wrangler"
+            candidates.append(([npx, "--yes", "wrangler@latest", "tunnel", "quick-start", target_url], "wrangler"))
+            candidates.append(([npx, "--yes", "localtunnel", "--port", target_port], "localtunnel"))
 
-        raise RuntimeError("No Cloudflare tunnel launcher found. Install cloudflared or use npx.")
+        if not candidates:
+            raise RuntimeError("No tunnel launcher found. Install cloudflared or use npx.")
+        return candidates
 
     def _watch_process(self, process: subprocess.Popen[str]) -> None:
         assert process.stdout is not None
@@ -228,36 +235,39 @@ class RemoteTrialManager:
             if self._process is not None and self._process.poll() is None:
                 return self._snapshot_locked()
 
-            self._last_error = None
-            self._log_lines = []
-            command, provider = self._build_command(target_url)
-            process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL,
-                text=True,
-                bufsize=1,
-            )
-            self._process = process
-            self._provider = provider
-            self._started_at = time.time()
-            self._public_url = None
-            threading.Thread(target=self._watch_process, args=(process,), daemon=True).start()
+            attempts: list[str] = []
+            for command, provider in self._command_candidates(target_url):
+                self._last_error = None
+                self._log_lines = []
+                process = subprocess.Popen(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    text=True,
+                    bufsize=1,
+                )
+                self._process = process
+                self._provider = provider
+                self._started_at = time.time()
+                self._public_url = None
+                threading.Thread(target=self._watch_process, args=(process,), daemon=True).start()
 
-            deadline = time.time() + 25
-            while self._public_url is None and self._last_error is None and time.time() < deadline:
-                remaining = deadline - time.time()
-                self._condition.wait(timeout=min(remaining, 1))
-                self._reap_locked()
+                deadline = time.time() + 25
+                while self._public_url is None and self._last_error is None and time.time() < deadline:
+                    remaining = deadline - time.time()
+                    self._condition.wait(timeout=min(remaining, 1))
+                    self._reap_locked()
 
-            if self._public_url is None:
-                if self._last_error is None:
-                    self._last_error = "Timed out waiting for the remote trial tunnel URL."
+                if self._public_url is not None:
+                    return self._snapshot_locked()
+
+                error_message = self._last_error or "Timed out waiting for the remote trial tunnel URL."
+                attempts.append(f"{provider}: {error_message}")
                 self._terminate_locked()
-                raise RuntimeError(self._last_error)
 
-            return self._snapshot_locked()
+            self._last_error = " | ".join(attempts) if attempts else "Timed out waiting for the remote trial tunnel URL."
+            raise RuntimeError(self._last_error)
 
 
 remote_trial_manager = RemoteTrialManager()
